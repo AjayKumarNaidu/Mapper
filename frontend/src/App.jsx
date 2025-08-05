@@ -11,7 +11,8 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.3/dist/images/marker-shadow.png",
 });
 
-const socket = io("http://localhost:5000"); // Replace with your deployed backend URL when needed
+const socket = io("https://mapper-11ly.onrender.com/");
+ // Replace with your deployed backend URL when needed
 
 function App() {
   const [userType, setUserType] = useState(null); // 'driver' or 'user'
