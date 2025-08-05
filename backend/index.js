@@ -4,7 +4,11 @@ const cors = require("cors");
 const socketIO = require("socket.io");
 
 const app = express();
-app.use(cors());
+const cors = require("cors");
+app.use(cors({
+  origin: "https://mapper-1-by95.onrender.com/",
+  methods: ["GET", "POST"],
+}));
 
 app.get("/", (req, res) => {
   res.send("Hello from server!");
