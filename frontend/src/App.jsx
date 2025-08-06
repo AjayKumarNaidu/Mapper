@@ -145,3 +145,5 @@ const inputStyle = {
   fontSize: "16px",
   marginBottom: "10px",
 };
+
+export default App;
