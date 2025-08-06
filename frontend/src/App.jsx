@@ -1,132 +1,147 @@
 import React, { useEffect, useState } from "react";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import { io } from "socket.io-client";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// ✅ Replace with actual backend URL
+// Use standard Leaflet marker icon (CDN)
+const defaultIcon = new L.Icon({
+  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+// Initialize socket
 const socket = io("https://mapper-11ly.onrender.com");
 
-const userIcon = new L.Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/149/149059.png",
-  iconSize: [35, 35],
-  iconAnchor: [17, 35],
-});
-
-const driverIcon = new L.Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/484/484167.png",
-  iconSize: [35, 35],
-  iconAnchor: [17, 35],
-});
-
-function RecenterMap({ lat, lng }) {
-  const map = useMap();
-  useEffect(() => {
-    if (lat && lng) {
-      map.setView([lat, lng], 13);
-    }
-  }, [lat, lng]);
-  return null;
-}
-
 function App() {
-  const [role, setRole] = useState("");
-  const [userLocation, setUserLocation] = useState(null);
+  const [userType, setUserType] = useState(null); // 'driver' or 'user'
+  const [driverId, setDriverId] = useState("");
+  const [inputId, setInputId] = useState("");
   const [driverLocation, setDriverLocation] = useState(null);
-  const [userLocations, setUserLocations] = useState([]);
+  const [mapCenter, setMapCenter] = useState([20.5937, 78.9629]); // Default: India
 
-  const roomId = "driver-room";
+  const handleRoleSelect = (type) => {
+    setUserType(type);
+  };
 
-  // Handle incoming socket events
+  const handleStart = () => {
+    if (inputId.trim() === "") return;
+    setDriverId(inputId.trim());
+  };
+
+  // Get map center on load
   useEffect(() => {
-    socket.on("sendToUsers", (location) => setDriverLocation(location));
-    socket.on("userLocations", (users) => {
-      const onlyLocations = users.map((u) => u.location);
-      setUserLocations(onlyLocations);
-    });
-
-    return () => {
-      socket.off("sendToUsers");
-      socket.off("userLocations");
-    };
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setMapCenter([pos.coords.latitude, pos.coords.longitude]),
+      (err) => console.error("Error fetching location:", err)
+    );
   }, []);
 
-  // Get current location on load
+  // Socket connection logic
   useEffect(() => {
-    const interval = setInterval(() => {
-      navigator.geolocation.getCurrentPosition((position) => {
-        const location = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        };
+    if (!driverId || !userType) return;
 
-        setUserLocation(location);
+    if (userType === "driver") {
+      socket.emit("joinRoom", driverId); // Driver joins their room
 
-        if (role === "user") {
-          socket.emit("joinRoom", roomId);
-          socket.emit("userLocation", { roomId, location });
-        } else if (role === "driver") {
-          socket.emit("joinRoom", roomId);
-          socket.emit("driverLocation", { roomId, location });
-        }
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const coords = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          };
+          setDriverLocation(coords);
+
+          // Emit to the server
+          socket.emit("driverLocation", {
+            roomId: driverId,
+            location: coords,
+          });
+        },
+        (err) => console.error("Error watching position:", err),
+        { enableHighAccuracy: true, maximumAge: 10000 }
+      );
+
+      return () => navigator.geolocation.clearWatch(watchId);
+    }
+
+    if (userType === "user") {
+      socket.emit("joinRoom", driverId); // User joins same room as driver
+
+      socket.on("sendToUsers", (location) => {
+        setDriverLocation(location); // Update map marker
       });
-    }, 3000);
 
-    return () => clearInterval(interval);
-  }, [role]);
+      // Cleanup on unmount
+      return () => {
+        socket.off("sendToUsers");
+      };
+    }
+  }, [driverId, userType]);
 
   return (
-    <div>
-      {!role && (
-        <div style={{ textAlign: "center", margin: 20 }}>
-          <button onClick={() => setRole("driver")}>Login as Driver</button>
-          <button onClick={() => setRole("user")}>Login as User</button>
+    <div style={{ height: "100vh", width: "100%" }}>
+      {!userType && (
+        <div style={{ textAlign: "center", padding: "20px" }}>
+          <h2>Select Role</h2>
+          <button onClick={() => handleRoleSelect("driver")} style={buttonStyle}>
+            I'm a Driver
+          </button>
+          <button onClick={() => handleRoleSelect("user")} style={buttonStyle}>
+            I'm a User
+          </button>
         </div>
       )}
 
-      {(role === "driver" || role === "user") && (
-        <MapContainer
-          center={userLocation || [17.385044, 78.486671]} // Hyderabad fallback
-          zoom={13}
-          style={{ height: "90vh", width: "100%" }}
-        >
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution="&copy; OpenStreetMap contributors"
+      {userType && !driverId && (
+        <div style={{ textAlign: "center", padding: "20px" }}>
+          <h2>Enter Driver ID</h2>
+          <input
+            type="text"
+            placeholder="Enter unique driver ID"
+            value={inputId}
+            onChange={(e) => setInputId(e.target.value)}
+            style={inputStyle}
           />
+          <button onClick={handleStart} style={buttonStyle}>
+            Start
+          </button>
+        </div>
+      )}
 
-          {/* User's Marker */}
-          {userLocation && role === "user" && (
-            <Marker position={userLocation} icon={userIcon}>
-              <Popup>You (User)</Popup>
-              <RecenterMap lat={userLocation.lat} lng={userLocation.lng} />
-            </Marker>
-          )}
-
-          {/* Driver's Marker */}
-          {driverLocation && (
-            <Marker position={driverLocation} icon={driverIcon}>
-              <Popup>Driver</Popup>
-              {role === "driver" && (
-                <RecenterMap
-                  lat={driverLocation.lat}
-                  lng={driverLocation.lng}
-                />
-              )}
-            </Marker>
-          )}
-
-          {/* All user markers visible to driver */}
-          {role === "driver" &&
-            userLocations.map((loc, idx) => (
-              <Marker key={idx} position={loc} icon={userIcon}>
-                <Popup>User {idx + 1}</Popup>
+      {userType && driverId && (
+        <>
+          <h3 style={{ textAlign: "center" }}>{userType} View - ID: {driverId}</h3>
+          <MapContainer center={mapCenter} zoom={13} style={{ height: "90%", width: "100%" }}>
+            <TileLayer
+              attribution='&copy; OpenStreetMap contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            {driverLocation && (
+              <Marker position={driverLocation} icon={defaultIcon}>
+                <Popup>Driver {driverId} is here</Popup>
               </Marker>
-            ))}
-        </MapContainer>
+            )}
+          </MapContainer>
+        </>
       )}
     </div>
   );
 }
 
-export default App;
+const buttonStyle = {
+  margin: "10px",
+  padding: "12px 24px",
+  fontSize: "16px",
+  cursor: "pointer",
+};
+
+const inputStyle = {
+  padding: "10px",
+  fontSize: "16px",
+  marginBottom: "10px",
+};

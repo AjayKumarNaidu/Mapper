@@ -1,27 +1,27 @@
-// backend/index.js
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
-const socketIO = require("socket.io");
+const { Server } = require("socket.io");
 
 const app = express();
+const server = http.createServer(app);
 
+// CORS setup
 app.use(cors({
-  origin: "https://mapper-1-by95.onrender.com", // your frontend URL
+  origin: "https://mapper-1-by95.onrender.com/", // Replace with your frontend domain if needed
   methods: ["GET", "POST"],
 }));
 
-const server = http.createServer(app);
-const io = socketIO(server, {
+const io = new Server(server, {
   cors: {
-    origin: "*",
-  },
+    origin: "*", // Replace with your frontend origin like "https://your-frontend-url.com"
+    methods: ["GET", "POST"]
+  }
 });
 
-const roomUserLocations = {}; // { roomId: [ { socketId, location } ] }
-
+// Socket.IO handling
 io.on("connection", (socket) => {
-  console.log("New connection:", socket.id);
+  console.log("Client connected:", socket.id);
 
   socket.on("joinRoom", (roomId) => {
     socket.join(roomId);
@@ -29,42 +29,18 @@ io.on("connection", (socket) => {
     console.log(`${socket.id} joined room: ${roomId}`);
   });
 
-  socket.on("userLocation", ({ roomId, location }) => {
-    if (!roomUserLocations[roomId]) roomUserLocations[roomId] = [];
-
-    const index = roomUserLocations[roomId].findIndex(u => u.socketId === socket.id);
-    if (index !== -1) {
-      roomUserLocations[roomId][index].location = location;
-    } else {
-      roomUserLocations[roomId].push({ socketId: socket.id, location });
-    }
-
-    // Send updated user locations to the driver
-    io.to(roomId).emit("userLocations", roomUserLocations[roomId]);
-  });
-
   socket.on("driverLocation", ({ roomId, location }) => {
+    // Send to all users in the same room (except driver)
     socket.to(roomId).emit("sendToUsers", location);
-
-    // Also send user locations to the driver
-    io.to(socket.id).emit("userLocations", roomUserLocations[roomId] || []);
   });
 
   socket.on("disconnect", () => {
-    console.log("Disconnected:", socket.id);
-
-    if (socket.roomId && roomUserLocations[socket.roomId]) {
-      roomUserLocations[socket.roomId] = roomUserLocations[socket.roomId].filter(
-        u => u.socketId !== socket.id
-      );
-
-      // Notify others about updated user list
-      io.to(socket.roomId).emit("userLocations", roomUserLocations[socket.roomId]);
-    }
+    console.log("Client disconnected:", socket.id);
   });
 });
 
-const PORT = 5000;
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running at http://0.0.0.0:${PORT}`);
+// Server start
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
