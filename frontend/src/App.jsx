@@ -4,21 +4,25 @@ import { io } from "socket.io-client";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// Fix for marker icon not displaying correctly
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconUrl: "https://unpkg.com/leaflet@1.9.3/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.3/dist/images/marker-shadow.png",
+// Use standard Leaflet marker icon (CDN)
+const defaultIcon = new L.Icon({
+  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
 });
 
-const socket = io("https://mapper-11ly.onrender.com/");
+// Initialize socket
+const socket = io("https://mapper-11ly.onrender.com");
 
 function App() {
   const [userType, setUserType] = useState(null); // 'driver' or 'user'
   const [driverId, setDriverId] = useState("");
-  const [inputId, setInputId] = useState(""); // Temporary input before submission
+  const [inputId, setInputId] = useState("");
   const [driverLocation, setDriverLocation] = useState(null);
-  const [mapCenter, setMapCenter] = useState([20.5937, 78.9629]); // Default center (India)
+  const [mapCenter, setMapCenter] = useState([20.5937, 78.9629]); // Default: India
 
   const handleRoleSelect = (type) => {
     setUserType(type);
@@ -29,21 +33,21 @@ function App() {
     setDriverId(inputId.trim());
   };
 
+  // Get map center on load
   useEffect(() => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setMapCenter([pos.coords.latitude, pos.coords.longitude]);
-      },
-      (err) => {
-        console.error("Error fetching location:", err);
-      }
+      (pos) => setMapCenter([pos.coords.latitude, pos.coords.longitude]),
+      (err) => console.error("Error fetching location:", err)
     );
   }, []);
 
+  // Socket connection logic
   useEffect(() => {
     if (!driverId || !userType) return;
 
     if (userType === "driver") {
+      socket.emit("joinRoom", driverId); // Driver joins their room
+
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
           const coords = {
@@ -51,11 +55,14 @@ function App() {
             lng: pos.coords.longitude,
           };
           setDriverLocation(coords);
-          socket.emit("driverLocation", { driverId, coords });
+
+          // Emit to the server
+          socket.emit("driverLocation", {
+            roomId: driverId,
+            location: coords,
+          });
         },
-        (err) => {
-          console.error("Error watching position:", err);
-        },
+        (err) => console.error("Error watching position:", err),
         { enableHighAccuracy: true, maximumAge: 10000 }
       );
 
@@ -63,13 +70,16 @@ function App() {
     }
 
     if (userType === "user") {
-      socket.emit("joinDriverRoom", driverId);
+      socket.emit("joinRoom", driverId); // User joins same room as driver
 
-      socket.on("sendToUsers", ({ driverId: incomingId, coords }) => {
-        if (incomingId === driverId) {
-          setDriverLocation(coords);
-        }
+      socket.on("sendToUsers", (location) => {
+        setDriverLocation(location); // Update map marker
       });
+
+      // Cleanup on unmount
+      return () => {
+        socket.off("sendToUsers");
+      };
     }
   }, [driverId, userType]);
 
@@ -106,14 +116,13 @@ function App() {
       {userType && driverId && (
         <>
           <h3 style={{ textAlign: "center" }}>{userType} View - ID: {driverId}</h3>
-
           <MapContainer center={mapCenter} zoom={13} style={{ height: "90%", width: "100%" }}>
             <TileLayer
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             {driverLocation && (
-              <Marker position={driverLocation}>
+              <Marker position={driverLocation} icon={defaultIcon}>
                 <Popup>Driver {driverId} is here</Popup>
               </Marker>
             )}
