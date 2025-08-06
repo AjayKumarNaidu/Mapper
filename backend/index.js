@@ -4,6 +4,7 @@ const cors = require("cors");
 const socketIO = require("socket.io");
 
 const app = express();
+
 app.use(cors({
   origin: "https://mapper-1-by95.onrender.com", // no trailing slash
   methods: ["GET", "POST"],
