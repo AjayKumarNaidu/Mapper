@@ -1,109 +1,45 @@
-import React, { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import { io } from "socket.io-client";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+const express = require("express");
+const http = require("http");
+const cors = require("cors");
+const socketIO = require("socket.io");
 
-// Fix for marker icon not displaying correctly
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconUrl: "https://unpkg.com/leaflet@1.9.3/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.3/dist/images/marker-shadow.png",
+const app = express();
+const cors = require("cors");
+app.use(cors({
+  origin: "https://mapper-1-by95.onrender.com/",
+  methods: ["GET", "POST"],
+}));
+
+app.get("/", (req, res) => {
+  res.send("Hello from server!");
 });
 
-const socket = io("https://mapper-11ly.onrender.com/");
- // Replace with your deployed backend URL when needed
+const server = http.createServer(app);
+const io = socketIO(server, {
+  cors: {
+    origin: "*",
+  },
+});
 
-function App() {
-  const [userType, setUserType] = useState(null); // 'driver' or 'user'
-  const [driverLocation, setDriverLocation] = useState(null);
-  const [mapCenter, setMapCenter] = useState([20.5937, 78.9629]); // Default center (India)
+// Listen for connections
+io.on("connection", (socket) => {
+  console.log("A user connected: " + socket.id);
 
-  // When user selects their role
-  const handleRoleSelect = (type) => {
-    setUserType(type);
-  };
+  // Listen for driver location updates
+  socket.on("driverLocation", (location) => {
+    console.log("Location received: ", location);
 
-  useEffect(() => {
-    // Get user's current location once on load (for centering map)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setMapCenter([pos.coords.latitude, pos.coords.longitude]);
-      },
-      (err) => {
-        console.error("Error fetching location:", err);
-      }
-    );
-  }, []);
+    // Broadcast location to all other users
+    socket.broadcast.emit("sendToUsers", location);
+  });
 
-  useEffect(() => {
-    if (userType === "driver") {
-      const watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          const coords = {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-          };
-          setDriverLocation(coords);
-          socket.emit("driverLocation", coords);
-        },
-        (err) => {
-          console.error("Error watching position:", err);
-        },
-        { enableHighAccuracy: true, maximumAge: 10000 }
-      );
+  socket.on("disconnect", () => {
+    console.log("User disconnected: " + socket.id);
+  });
+});
 
-      return () => navigator.geolocation.clearWatch(watchId);
-    }
-
-    if (userType === "user") {
-      socket.on("sendToUsers", (location) => {
-        setDriverLocation(location);
-      });
-    }
-  }, [userType]);
-
-  return (
-    <div style={{ height: "100vh", width: "100%" }}>
-      {!userType && (
-        <div style={{ textAlign: "center", padding: "20px" }}>
-          <h2>Select Role</h2>
-          <button onClick={() => handleRoleSelect("driver")} style={buttonStyle}>
-            I'm a Driver
-          </button>
-          <button onClick={() => handleRoleSelect("user")} style={buttonStyle}>
-            I'm a User
-          </button>
-        </div>
-      )}
-
-      {userType && (
-        <>
-          <h3 style={{ textAlign: "center" }}>{userType === "driver" ? "Driver" : "User"} View</h3>
-
-          <MapContainer center={mapCenter} zoom={13} style={{ height: "90%", width: "100%" }}>
-            <TileLayer
-              attribution='&copy; OpenStreetMap contributors'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-
-            {driverLocation && (
-              <Marker position={driverLocation}>
-                <Popup>Driver is here</Popup>
-              </Marker>
-            )}
-          </MapContainer>
-        </>
-      )}
-    </div>
-  );
-}
-
-const buttonStyle = {
-  margin: "10px",
-  padding: "12px 24px",
-  fontSize: "16px",
-  cursor: "pointer",
-};
-
-export default App;
+// ✅ Use server.listen, not app.listen
+const PORT = 5000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+});
