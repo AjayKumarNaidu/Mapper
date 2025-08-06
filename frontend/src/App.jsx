@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import { io } from "socket.io-client";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "leaflet-routing-machine";
+import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
 
-// Use standard Leaflet marker icon (CDN)
+// Default Leaflet icon
 const defaultIcon = new L.Icon({
   iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
@@ -14,39 +16,70 @@ const defaultIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
-// Initialize socket
 const socket = io("https://mapper-11ly.onrender.com");
+
+// Routing component for user to driver
+const RouteDisplay = ({ userLocation, driverLocation }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!userLocation || !driverLocation) return;
+
+    const control = L.Routing.control({
+      waypoints: [
+        L.latLng(userLocation.lat, userLocation.lng),
+        L.latLng(driverLocation.lat, driverLocation.lng),
+      ],
+      lineOptions: {
+        styles: [{ color: "blue", weight: 4 }],
+      },
+      createMarker: () => null,
+      addWaypoints: false,
+      draggableWaypoints: false,
+      fitSelectedRoutes: true,
+      show: false,
+    }).addTo(map);
+
+    return () => map.removeControl(control);
+  }, [userLocation, driverLocation, map]);
+
+  return null;
+};
 
 function App() {
   const [userType, setUserType] = useState(null); // 'driver' or 'user'
   const [driverId, setDriverId] = useState("");
   const [inputId, setInputId] = useState("");
   const [driverLocation, setDriverLocation] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
   const [mapCenter, setMapCenter] = useState([20.5937, 78.9629]); // Default: India
 
-  const handleRoleSelect = (type) => {
-    setUserType(type);
-  };
-
+  const handleRoleSelect = (type) => setUserType(type);
   const handleStart = () => {
     if (inputId.trim() === "") return;
     setDriverId(inputId.trim());
   };
 
-  // Get map center on load
+  // Get initial location
   useEffect(() => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => setMapCenter([pos.coords.latitude, pos.coords.longitude]),
+      (pos) => {
+        const coords = [pos.coords.latitude, pos.coords.longitude];
+        setMapCenter(coords);
+        if (userType === "user") {
+          setUserLocation({ lat: coords[0], lng: coords[1] });
+        }
+      },
       (err) => console.error("Error fetching location:", err)
     );
-  }, []);
+  }, [userType]);
 
-  // Socket connection logic
+  // Socket logic
   useEffect(() => {
     if (!driverId || !userType) return;
 
     if (userType === "driver") {
-      socket.emit("joinRoom", driverId); // Driver joins their room
+      socket.emit("joinRoom", driverId);
 
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
@@ -55,8 +88,8 @@ function App() {
             lng: pos.coords.longitude,
           };
           setDriverLocation(coords);
+          setMapCenter([coords.lat, coords.lng]);
 
-          // Emit to the server
           socket.emit("driverLocation", {
             roomId: driverId,
             location: coords,
@@ -70,16 +103,13 @@ function App() {
     }
 
     if (userType === "user") {
-      socket.emit("joinRoom", driverId); // User joins same room as driver
+      socket.emit("joinRoom", driverId);
 
       socket.on("sendToUsers", (location) => {
-        setDriverLocation(location); // Update map marker
+        setDriverLocation(location);
       });
 
-      // Cleanup on unmount
-      return () => {
-        socket.off("sendToUsers");
-      };
+      return () => socket.off("sendToUsers");
     }
   }, [driverId, userType]);
 
@@ -116,15 +146,23 @@ function App() {
       {userType && driverId && (
         <>
           <h3 style={{ textAlign: "center" }}>{userType} View - ID: {driverId}</h3>
-          <MapContainer center={mapCenter} zoom={13} style={{ height: "90%", width: "100%" }}>
+          <MapContainer center={mapCenter} zoom={15} style={{ height: "90%", width: "100%" }}>
             <TileLayer
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             {driverLocation && (
-              <Marker position={driverLocation} icon={defaultIcon}>
+              <Marker position={[driverLocation.lat, driverLocation.lng]} icon={defaultIcon}>
                 <Popup>Driver {driverId} is here</Popup>
               </Marker>
+            )}
+            {userLocation && (
+              <Marker position={[userLocation.lat, userLocation.lng]} icon={defaultIcon}>
+                <Popup>Your Location</Popup>
+              </Marker>
+            )}
+            {userType === "user" && userLocation && driverLocation && (
+              <RouteDisplay userLocation={userLocation} driverLocation={driverLocation} />
             )}
           </MapContainer>
         </>
