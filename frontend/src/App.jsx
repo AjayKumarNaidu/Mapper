@@ -6,19 +6,21 @@ import "leaflet/dist/leaflet.css";
 import "leaflet-routing-machine";
 import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
 
-// Default Leaflet icon
-const defaultIcon = new L.Icon({
-  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
+// Icons
+const driverIcon = new L.Icon({
+  iconUrl: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+  iconSize: [32, 32],
 });
 
+const userIcon = new L.Icon({
+  iconUrl: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+  iconSize: [32, 32],
+});
+
+// Socket
 const socket = io("https://mapper-11ly.onrender.com");
 
-// Routing component for user to driver
+// Route between user and driver
 const RouteDisplay = ({ userLocation, driverLocation }) => {
   const map = useMap();
 
@@ -30,9 +32,7 @@ const RouteDisplay = ({ userLocation, driverLocation }) => {
         L.latLng(userLocation.lat, userLocation.lng),
         L.latLng(driverLocation.lat, driverLocation.lng),
       ],
-      lineOptions: {
-        styles: [{ color: "blue", weight: 4 }],
-      },
+      lineOptions: { styles: [{ color: "blue", weight: 4 }] },
       createMarker: () => null,
       addWaypoints: false,
       draggableWaypoints: false,
@@ -68,6 +68,8 @@ function App() {
         setMapCenter(coords);
         if (userType === "user") {
           setUserLocation({ lat: coords[0], lng: coords[1] });
+        } else if (userType === "driver") {
+          setDriverLocation({ lat: coords[0], lng: coords[1] });
         }
       },
       (err) => console.error("Error fetching location:", err)
@@ -78,9 +80,9 @@ function App() {
   useEffect(() => {
     if (!driverId || !userType) return;
 
-    if (userType === "driver") {
-      socket.emit("joinRoom", driverId);
+    socket.emit("joinRoom", driverId);
 
+    if (userType === "driver") {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
           const coords = {
@@ -103,8 +105,6 @@ function App() {
     }
 
     if (userType === "user") {
-      socket.emit("joinRoom", driverId);
-
       socket.on("sendToUsers", (location) => {
         setDriverLocation(location);
       });
@@ -151,16 +151,22 @@ function App() {
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
+
+            {/* Driver Marker */}
             {driverLocation && (
-              <Marker position={[driverLocation.lat, driverLocation.lng]} icon={defaultIcon}>
-                <Popup>Driver {driverId} is here</Popup>
+              <Marker position={[driverLocation.lat, driverLocation.lng]} icon={driverIcon}>
+                <Popup>Driver {driverId}</Popup>
               </Marker>
             )}
+
+            {/* User Marker */}
             {userLocation && (
-              <Marker position={[userLocation.lat, userLocation.lng]} icon={defaultIcon}>
-                <Popup>Your Location</Popup>
+              <Marker position={[userLocation.lat, userLocation.lng]} icon={userIcon}>
+                <Popup>You</Popup>
               </Marker>
             )}
+
+            {/* Route for user */}
             {userType === "user" && userLocation && driverLocation && (
               <RouteDisplay userLocation={userLocation} driverLocation={driverLocation} />
             )}
